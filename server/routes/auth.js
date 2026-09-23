@@ -57,6 +57,37 @@ router.post("/resident", async (req, res) => {
 });
 
 // -------------------------------------------------------------
+// 1B. DELETE /api/auth/resident/:identifier - Delete a resident user by ID or Phone
+// -------------------------------------------------------------
+router.delete("/resident/:identifier", async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const cleanPhone = String(identifier).replace(/\D/g, "").slice(-10);
+    const result = await run(
+      "DELETE FROM resident_users WHERE id = ? OR phone = ?",
+      [identifier, cleanPhone]
+    );
+    res.json({ success: true, message: `Deleted ${result.changes} resident user account(s).` });
+  } catch (err) {
+    console.error("Error deleting resident user:", err);
+    res.status(500).json({ error: "Failed to delete resident user." });
+  }
+});
+
+// -------------------------------------------------------------
+// 1C. DELETE /api/auth/residents/all - Delete all resident user accounts
+// -------------------------------------------------------------
+router.delete("/residents/all", async (req, res) => {
+  try {
+    const result = await run("DELETE FROM resident_users");
+    res.json({ success: true, message: `Cleared all resident accounts (${result.changes} deleted).` });
+  } catch (err) {
+    console.error("Error clearing resident accounts:", err);
+    res.status(500).json({ error: "Failed to clear resident accounts." });
+  }
+});
+
+// -------------------------------------------------------------
 // 2. POST /api/auth/shop - Scrap Shopkeeper Login
 // -------------------------------------------------------------
 router.post("/shop", async (req, res) => {

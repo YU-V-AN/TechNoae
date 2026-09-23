@@ -949,10 +949,25 @@ function renderHomeLots(requests) {
           <p><strong>Scrap Shop:</strong> ${item.shopName || "Sri Murugan Scrap Shop"}</p>
           ${item.residentNotes ? `<p class="collector-notes">${item.residentNotes}</p>` : ""}
           ${otpBadgeHtml}
+          <div class="action-box" style="margin-top: 10px; display: flex; justify-content: flex-end;">
+            <button type="button" class="btn secondary-btn btn-delete-request" data-id="${item.id}" style="font-size: 0.8rem; padding: 4px 10px; color: #ff5252; border-color: rgba(255, 82, 82, 0.4);">
+              Delete Request
+            </button>
+          </div>
         </div>
       </div>
     `;
   }).join("");
+
+  container.querySelectorAll(".btn-delete-request").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = e.currentTarget.getAttribute("data-id");
+      if (confirm("Are you sure you want to delete this scrap pickup request?")) {
+        await deleteRequest(id);
+      }
+    });
+  });
 }
 
 // =========================================================
@@ -1049,7 +1064,10 @@ function renderShopUI(requests) {
 
         let actionBtn = "";
         if (item.status === "Requested") {
-          actionBtn = `<button class="btn primary-btn btn-action-collect" data-id="${item.id}" data-action="Shop Accepted">${t(currentLang, "shop.acceptHomeBtn")}</button>`;
+          actionBtn = `
+            <button class="btn primary-btn btn-action-collect" data-id="${item.id}" data-action="Shop Accepted">${t(currentLang, "shop.acceptHomeBtn")}</button>
+            <button type="button" class="btn secondary-btn btn-delete-request" data-id="${item.id}" style="font-size: 0.8rem; padding: 6px 12px; margin-left: 8px; color: #ff5252; border-color: rgba(255, 82, 82, 0.4);">Delete</button>
+          `;
         } else if (item.status === "Shop Accepted") {
           if (!item.householdOtp) {
             actionBtn = `<button class="btn primary-btn btn-send-otp" data-id="${item.id}" data-phone="${phone}">Send OTP to Resident (+91 ${phone})</button>`;
@@ -1176,6 +1194,17 @@ function renderShopUI(requests) {
       const id = e.currentTarget.getAttribute("data-id");
       const tier = e.currentTarget.getAttribute("data-tier");
       openOtpModal(id, tier);
+    });
+  });
+
+  // Bind Delete buttons in Shop UI
+  document.querySelectorAll("#shopHomeRequestsList .btn-delete-request").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = e.currentTarget.getAttribute("data-id");
+      if (confirm("Are you sure you want to delete this scrap request?")) {
+        await deleteRequest(id);
+      }
     });
   });
 }
@@ -1354,6 +1383,31 @@ async function advanceStatus(id, newStatus) {
     }
   } catch (err) {
     console.warn("Failed to persist status change to SQLite:", err);
+  }
+}
+
+// Request Deletion Handler
+async function deleteRequest(id) {
+  // 1. Optimistic UI update
+  allRequests = allRequests.filter(r => r.id !== id);
+
+  // 2. Clean from localStorage cache
+  try {
+    const cached = JSON.parse(localStorage.getItem("technova_requests_cache") || "[]");
+    const updated = cached.filter(r => r.id !== id);
+    localStorage.setItem("technova_requests_cache", JSON.stringify(updated));
+  } catch (_) {}
+
+  renderAllViews();
+
+  // 3. Delete from backend SQLite database
+  try {
+    const res = await fetch(`/api/requests/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      console.warn("Server responded with error when deleting request:", res.status);
+    }
+  } catch (err) {
+    console.warn("Could not reach server to delete request:", err);
   }
 }
 

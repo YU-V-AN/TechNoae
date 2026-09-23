@@ -394,7 +394,20 @@ router.post(["/requests/:id/otp/send", "/requests/:id/otp/resend"], async (req, 
 });
 
 // -------------------------------------------------------------
-// 6. DELETE /api/requests/:id - Delete a request
+// 6. DELETE /api/requests - Delete all requests (bulk clear)
+// -------------------------------------------------------------
+router.delete("/requests", async (req, res) => {
+  try {
+    const result = await run("DELETE FROM pickup_requests");
+    res.json({ success: true, message: `All requests cleared (${result.changes} records deleted).` });
+  } catch (err) {
+    console.error("Error clearing all requests:", err);
+    res.status(500).json({ error: "Failed to clear requests." });
+  }
+});
+
+// -------------------------------------------------------------
+// 6B. DELETE /api/requests/:id - Delete a single request
 // -------------------------------------------------------------
 router.delete("/requests/:id", async (req, res) => {
   try {
