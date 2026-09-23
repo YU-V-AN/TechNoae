@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tech Nova — 3-Tier E-Waste Network (Home -> Scrap Shop -> Recycler)</title>
+  <link rel="stylesheet" href="style.css?v=11.0">
+
+  <!-- Type: IBM Plex Sans for UI text, IBM Plex Mono for weights/metrics -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+  <!-- Leaflet Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation Bar & 3-Tier Supply Chain Switcher -->
+  <nav class="navbar">
+    <div class="logo">
+      <img src="assets/logo.png" alt="Tech Nova Logo" class="brand-logo-img" onerror="this.style.display='none'">
+    </div>
+
+    <div class="nav-controls">
+      <button id="themeToggleBtn" class="theme-toggle-btn" type="button" aria-label="Toggle Bright/Dark Mode">Mode: Bright</button>
+
+      <select id="languageSelect" class="lang-dropdown" aria-label="Language">
+        <option value="en">English</option>
+        <option value="ta">தமிழ் (Tamil)</option>
+        <option value="hi">हिंदी (Hindi)</option>
+        <option value="te">తెలుగు (Telugu)</option>
+        <option value="kn">ಕನ್ನಡ (Kannada)</option>       
+        <option value="mr">मराठी (Marathi)</option>
+        <option value="bn">বাংলা (Bengali)</option>
+        <option value="gu">ગુજરાતી (Gujarati)</option>
+        <option value="ml">മലയാളം (Malayalam)</option>
+      </select>
+
+      <div class="tab-switcher">
+        <button id="homeTabBtn" class="tab-btn active" data-i18n="nav.tabHome">Home (Resident)</button>
+        <button id="shopTabBtn" class="tab-btn" data-i18n="nav.tabShop">Scrap Shop</button>
+        <button id="recyclerTabBtn" class="tab-btn" data-i18n="nav.tabRecycler">Recycler (Industrial)</button>
+      </div>
+
+      <!-- User profile pill / logout button -->
+      <div id="navUserPill" class="nav-user-pill" style="display: none;">
+        <span class="user-avatar" id="navUserAvatar">User</span>
+        <div class="user-meta">
+          <span class="user-name" id="navUserName">User</span>
+          <span class="user-role" id="navUserRole">Resident</span>
+        </div>
+        <button type="button" id="navLogoutBtn" class="btn-logout" title="Sign Out" aria-label="Sign Out">
+          <span data-i18n="auth.signOut">Sign Out</span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- SMS / Mobile Notification Alert Banner (Shown when Scrap Shop triggers OTP) -->
+  <div id="smsAlertBanner" class="sms-notification-banner" style="display: none;"></div>
+
+  <div class="container">
+
+    <!-- ================= 1. HOME RESIDENT VIEW ================= -->
+    <main id="homeView" class="view-panel active-view">
+
+      <!-- 1. RESIDENT AUTH GATE (Visible when not signed into Resident Portal) -->
+      <div id="homeAuthGate" class="auth-gate-panel">
+        <div class="auth-gate-container">
+
+          <!-- Left: Resident Login Form Card -->
+          <div class="auth-card">
+            <div class="auth-card-header">
+              <span class="role-pill-badge">Resident Doorstep Service</span>
+              <h2 class="auth-title" data-i18n="auth.residentTitle">Resident Doorstep Scrap Portal</h2>
+              <p class="auth-subtitle" data-i18n="auth.residentSubtitle">Sign in with your phone & PIN to schedule doorstep scrap pickups, track visits, and view recycling impact.</p>
+            </div>
+
+            <form id="residentAuthForm" class="auth-form">
+              <div class="form-group">
+                <label data-i18n="auth.nameLabel">Your Full Name</label>
+                <input type="text" id="residentAuthName" placeholder="e.g. Ramesh Kumar" required>
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="auth.phoneLabel">Mobile Phone Number</label>
+                <div class="phone-input-group">
+                  <span class="phone-country-code">+91</span>
+                  <input type="tel" id="residentAuthPhone" placeholder="9876543210" maxlength="10" pattern="[0-9]{10}" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="auth.pinLabel">4-Digit Access PIN</label>
+                <input type="password" id="residentAuthPin" placeholder="4-digit PIN (default: 1234)" maxlength="4" pattern="[0-9]{4}" required>
+                <small class="form-hint">First time? Enter any 4-digit PIN to set up your account.</small>
+              </div>
+
+              <div id="residentAuthError" class="auth-alert-error" style="display: none;"></div>
+
+              <button type="submit" id="residentAuthSubmitBtn" class="btn primary-btn btn-auth-submit" data-i18n="auth.residentSignInBtn">
+                Sign In / Register Resident
+              </button>
+            </form>
+          </div>
+
+          <!-- Right: Home Portal Visual Card with Floating Motivational Text -->
+          <div class="auth-visual-card">
+            <img src="assets/home%20portal.jpg" alt="Home Portal Scrap Collection" class="auth-visual-img">
+            <div class="auth-visual-gradient"></div>
+            <div class="auth-floating-content">
+              <div class="auth-floating-tag">Eco-Friendly Living</div>
+              <h3 class="auth-floating-title">Turn Household E-Waste Into a Greener Tomorrow</h3>
+              <p class="auth-floating-desc">Every old mobile, appliance, and circuit board collected from your home protects local soil and groundwater from toxic heavy metals.</p>
+              <div class="auth-floating-highlights">
+                <span class="auth-highlight-pill">Free Doorstep Pickup</span>
+                <span class="auth-highlight-pill">OTP Verification</span>
+                <span class="auth-highlight-pill">100% Eco-Safe</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 2. RESIDENT DASHBOARD PANEL (Visible when signed in) -->
+      <div id="homeDashboardPanel" class="portal-panel-inner" style="display: none;">
+
+        <!-- Resident impact strip -->
+        <section class="impact-strip" aria-label="Your recycling impact">
+        <div class="impact-stat">
+          <span class="impact-value" id="statRequests">0</span>
+          <span class="impact-label" data-i18n="home.impactRequests">Home Requests</span>
+        </div>
+        <div class="impact-stat">
+          <span class="impact-value" id="statWeight">0</span>
+          <span class="impact-label" data-i18n="home.impactWeight">Kg Handed Over</span>
+        </div>
+        <div class="impact-stat impact-stat--copper">
+          <span class="impact-value" id="statCompleted">0</span>
+          <span class="impact-label" data-i18n="home.impactCompleted">Recycled Lots</span>
+        </div>
+      </section>
+
+      <!-- Main Pickup Request Form (Full-width Expanded) -->
+      <div class="card-box full-width">
+        <div class="section-header">
+          <span class="role-pill-badge">Resident Doorstep Service</span>
+          <h3 data-i18n="home.formTitle">Request Home Scrap Pickup</h3>
+          <p class="section-subtitle" data-i18n="home.formSubtitle">A nearby scrap shop will visit your home to collect your scrap.</p>
+        </div>
+
+        <form id="pickupForm">
+
+          <!-- 1. Swiping Material Carousel with 1-Card Full Width View -->
+          <div class="form-group">
+            <div class="carousel-header-row">
+              <label data-i18n="home.categoryLabel">Click or Swipe to Select Material</label>
+              <span class="carousel-counter" id="carouselCounter">1 / 5</span>
+            </div>
+            <input type="hidden" id="eWasteType" value="Printed Circuit Boards (PCBs)" required>
+
+            <div class="material-carousel-wrapper">
+              <button type="button" class="carousel-nav-btn prev-btn" id="carouselPrevBtn" aria-label="Previous material">❮</button>
+
+              <div class="material-swipe-track" id="materialTrack" role="radiogroup" aria-label="E-Waste Material Category">
+
+                <!-- Card 1: PCBs -->
+                <div class="material-swipe-card active" data-category="Printed Circuit Boards (PCBs)" data-index="0" role="radio" aria-checked="true" tabindex="0" style="background-image: url('assets/pcb.jpg');">
+                  <div class="card-backdrop-overlay"></div>
+                  <div class="card-top-badges">
+                    <span class="material-selection-badge">Selected</span>
+                  </div>
+                  <div class="card-bottom-meta">
+                    <h4 class="material-card-title" data-i18n="cat.pcb">PCBs / Motherboards</h4>
+                    <p class="material-card-desc" data-i18n="cat.pcbDesc">Motherboards, RAM, Circuit Cards, Chips</p>
+                  </div>
+                </div>
+
+                <!-- Card 2: Copper -->
+                <div class="material-swipe-card" data-category="Copper Cables & Wires" data-index="1" role="radio" aria-checked="false" tabindex="0" style="background-image: url('assets/wires.jpg');">
+                  <div class="card-backdrop-overlay"></div>
+                  <div class="card-top-badges">
+                    <span class="material-selection-badge">Selected</span>
+                  </div>
+                  <div class="card-bottom-meta">
+                    <h4 class="material-card-title" data-i18n="cat.copper">Copper Cables & Wires</h4>
+                    <p class="material-card-desc" data-i18n="cat.copperDesc">Electric wiring, power cords, motor coils</p>
+                  </div>
+                </div>
+
+                <!-- Card 3: Batteries -->
+                <div class="material-swipe-card" data-category="Batteries (Li-ion/Lead Acid)" data-index="2" role="radio" aria-checked="false" tabindex="0" style="background-image: url('assets/battery.jpg');">
+                  <div class="card-backdrop-overlay"></div>
+                  <div class="card-top-badges">
+                    <span class="material-selection-badge">Selected</span>
+                  </div>
+                  <div class="card-bottom-meta">
+                    <h4 class="material-card-title" data-i18n="cat.battery">Batteries</h4>
+                    <p class="material-card-desc" data-i18n="cat.batteryDesc">Li-ion cells, laptop/phone batteries, UPS</p>
+                  </div>
+                </div>
+
+                <!-- Card 4: Displays -->
+                <div class="material-swipe-card" data-category="Display Screens / CRTs" data-index="3" role="radio" aria-checked="false" tabindex="0" style="background-image: url('assets/screens.jpg');">
+                  <div class="card-backdrop-overlay"></div>
+                  <div class="card-top-badges">
+                    <span class="material-selection-badge">Selected</span>
+                  </div>
+                  <div class="card-bottom-meta">
+                    <h4 class="material-card-title" data-i18n="cat.display">Display Screens / Monitors</h4>
+                    <p class="material-card-desc" data-i18n="cat.displayDesc">LED/LCD monitors, TVs, broken screens</p>
+                  </div>
+                </div>
+
+                <!-- Card 5: Mixed Scrap -->
+                <div class="material-swipe-card" data-category="Mixed Electronic Scrap" data-index="4" role="radio" aria-checked="false" tabindex="0" style="background-image: url('assets/old-electronics.jpg');">
+                  <div class="card-backdrop-overlay"></div>
+                  <div class="card-top-badges">
+                    <span class="material-selection-badge">Selected</span>
+                  </div>
+                  <div class="card-bottom-meta">
+                    <h4 class="material-card-title" data-i18n="cat.mixed">Mixed Scrap</h4>
+                    <p class="material-card-desc" data-i18n="cat.mixedDesc">Keyboards, mice, remotes, small appliances</p>
+                  </div>
+                </div>
+
+              </div>
+
+              <button type="button" class="carousel-nav-btn next-btn" id="carouselNextBtn" aria-label="Next material">❯</button>
+            </div>
+
+            <!-- Pagination Dots & Interaction Cue -->
+            <div class="carousel-indicators-bar">
+              <div class="carousel-dots" id="carouselDots">
+                <button type="button" class="carousel-dot active" data-index="0" aria-label="Slide 1"></button>
+                <button type="button" class="carousel-dot" data-index="1" aria-label="Slide 2"></button>
+                <button type="button" class="carousel-dot" data-index="2" aria-label="Slide 3"></button>
+                <button type="button" class="carousel-dot" data-index="3" aria-label="Slide 4"></button>
+                <button type="button" class="carousel-dot" data-index="4" aria-label="Slide 5"></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Weight Input -->
+          <div class="form-group">
+            <label data-i18n="home.weightLabel">Estimated Weight (kg)</label>
+            <input type="number" id="weight" min="0.5" step="0.5" data-i18n-placeholder="home.weightPlaceholder" placeholder="e.g. 12.5" required>
+          </div>
+
+          <!-- 3. Resident Contact Info -->
+          <div class="collector-details-panel">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label data-i18n="home.nameLabel">Your Name</label>
+                <input type="text" id="residentName" data-i18n-placeholder="home.namePlaceholder" placeholder="e.g. Ramesh Kumar" required>
+              </div>
+              <div class="form-group flex-1">
+                <label data-i18n="home.phoneLabel">Phone Number (For Scrap Shop Call / WhatsApp)</label>
+                <div class="phone-input-group">
+                  <span class="phone-country-code">+91</span>
+                  <input type="tel" id="residentPhone" data-i18n-placeholder="home.phonePlaceholder" placeholder="9876543210" maxlength="15" required>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label data-i18n="home.notesLabel">Home Address / Landmark Notes</label>
+              <input type="text" id="residentNotes" data-i18n-placeholder="home.notesPlaceholder" placeholder="e.g. Door No. 12, Gandhi Street, near Temple">
+            </div>
+          </div>
+
+          <!-- 4. Pin Home Map Location -->
+          <div class="form-group">
+            <label data-i18n="home.searchLabel">Search Address or Pincode</label>
+            <div class="search-input-group">
+              <input type="text" id="homeSearchInput" data-i18n-placeholder="home.searchPlaceholder" placeholder="e.g. 600001 or T. Nagar, Chennai">
+              <button type="button" id="homeSearchBtn" class="btn secondary-btn" data-i18n="home.searchBtn">Search & Pin</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label data-i18n="home.mapLabel">Pin Your Home Location (Click map or drag pin)</label>
+            <div id="homeMap" class="map-container"></div>
+            <small id="homeLocationStatus" class="status-hint" data-i18n="home.locationSetting">Pinned Location: Setting...</small>
+          </div>
+
+          <!-- 5. Material Photo (Camera or File) -->
+          <div class="form-group photo-field-group">
+            <label data-i18n="home.photoLabel">Scrap Photo (Take picture or choose file)</label>
+            <div class="photo-capture-options">
+              <button type="button" id="triggerCameraBtn" class="btn camera-trigger-btn">
+                <span data-i18n="home.cameraBtn">Take Photo (Camera)</span>
+              </button>
+              <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
+
+              <button type="button" id="triggerFileBtn" class="btn file-trigger-btn">
+                <span data-i18n="home.uploadBtn">Choose from Files</span>
+              </button>
+              <input type="file" id="imageInput" accept="image/*" style="display:none;">
+            </div>
+
+            <div id="imagePreviewContainer" class="image-preview-box" style="display:none;">
+              <img id="imagePreview" src="" alt="Image Preview" />
+              <div class="preview-overlay-bar">
+                <span class="preview-badge">Photo Attached</span>
+                <button type="button" id="clearPhotoBtn" class="btn-retake" data-i18n="home.retakePhoto">Retake / Change</button>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" id="submitBtn" class="btn primary-btn" data-i18n="home.submitBtn">Request Pickup from Nearby Scrap Shop</button>
+        </form>
+      </div>
+
+      <!-- Real-Time Activity Section (Home Citizen Requests) -->
+      <div class="card-box full-width margin-top">
+        <div class="section-header">
+          <h3 data-i18n="home.myLotsTitle">My Home Pickup Requests</h3>
+          <p class="section-subtitle" data-i18n="home.myLotsSubtitle">Track your scrap from home collection to local scrap shop and certified recycling</p>
+        </div>
+        <div id="homeStatusList" class="cards-list grid-cards">
+          <p class="loading" data-i18n="home.loadingLots">Loading your requests...</p>
+        </div>
+      </div>
+      </div> <!-- /#homeDashboardPanel -->
+    </main>
+
+    <!-- ================= 2. SCRAP SHOP VIEW ================= -->
+    <main id="shopView" class="view-panel">
+
+      <!-- 1. SCRAP SHOP AUTH GATE (Visible when not signed into Scrap Shop) -->
+      <div id="shopAuthGate" class="auth-gate-panel">
+        <div class="auth-gate-container">
+
+          <!-- Left: Scrap Shop Login Form Card -->
+          <div class="auth-card">
+            <div class="auth-card-header">
+              <span class="role-pill-badge badge-copper">Local Scrap Aggregator</span>
+              <h2 class="auth-title" data-i18n="auth.shopTitle">Scrap Shop Aggregator Portal</h2>
+              <p class="auth-subtitle" data-i18n="auth.shopSubtitle">Authorized access for local scrap aggregators to collect household scrap, manage shop stock, and dispatch bulk lots.</p>
+            </div>
+
+            <form id="shopAuthForm" class="auth-form">
+              <div class="form-group">
+                <label data-i18n="auth.shopSelectLabel">Select Your Scrap Shop</label>
+                <select id="shopAuthSelect" class="auth-select">
+                  <option value="Sri Murugan Scrap Shop">Sri Murugan Scrap Shop (Chennai Central)</option>
+                  <option value="Balaji Metal Scrap & Traders">Balaji Metal Scrap & Traders (Guindy)</option>
+                  <option value="__NEW__">Register New Scrap Shop</option>
+                </select>
+              </div>
+
+              <div class="form-group" id="shopAuthNewNameGroup" style="display: none;">
+                <label>New Scrap Shop Name</label>
+                <input type="text" id="shopAuthNewName" placeholder="e.g. Annai Scrap Traders">
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="auth.phoneLabel">Shop Phone Number</label>
+                <div class="phone-input-group">
+                  <span class="phone-country-code">+91</span>
+                  <input type="tel" id="shopAuthPhone" value="9840123456" placeholder="9840123456" maxlength="10" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="auth.pinLabel">Shop Security PIN</label>
+                <input type="password" id="shopAuthPin" value="1234" placeholder="4-digit PIN (default: 1234)" maxlength="4" required>
+              </div>
+
+              <div id="shopAuthError" class="auth-alert-error" style="display: none;"></div>
+
+              <button type="submit" id="shopAuthSubmitBtn" class="btn primary-btn btn-auth-submit" data-i18n="auth.shopSignInBtn">
+                Sign In to Scrap Shop
+              </button>
+            </form>
+          </div>
+
+          <!-- Right: Scrap Shop Visual Card with Floating Motivational Text -->
+          <div class="auth-visual-card">
+            <img src="assets/scrap%20shop%20portal.png" alt="Scrap Shop Portal Aggregator" class="auth-visual-img">
+            <div class="auth-visual-gradient"></div>
+            <div class="auth-floating-content">
+              <div class="auth-floating-tag badge-tag-copper">Local Aggregator Hub</div>
+              <h3 class="auth-floating-title">Powering Your Community's Circular Economy</h3>
+              <p class="auth-floating-desc">You are the vital bridge between households and certified smelters. Accept pickups, organize inventory, and dispatch bulk shipments for higher profit margins.</p>
+              <div class="auth-floating-highlights">
+                <span class="auth-highlight-pill">Direct Bulk Recycler Dispatch</span>
+                <span class="auth-highlight-pill">Instant Handover OTP</span>
+                <span class="auth-highlight-pill">Real-time Inventory</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 2. SCRAP SHOP DASHBOARD PANEL (Visible when signed in) -->
+      <div id="shopDashboardPanel" class="portal-panel-inner" style="display: none;">
+
+        <!-- Scrap Shop Profile Header -->
+        <div class="card-box full-width shop-profile-box">
+        <div class="shop-profile-header">
+          <div>
+            <span class="role-pill-badge badge-copper">Local Scrap Aggregator</span>
+            <h3 data-i18n="shop.title">Local Scrap Shop Portal</h3>
+            <p class="section-subtitle" data-i18n="shop.subtitle">Collect scrap from homes nearby, stock in shop, and dispatch bulk lots to industrial recyclers.</p>
+          </div>
+          <div class="shop-stat-pills">
+            <div class="shop-stat-pill">
+              <span class="stat-pill-label" data-i18n="shop.totalStock">Total Stock in Shop</span>
+              <strong class="stat-pill-val" id="shopTotalStock">0 kg</strong>
+            </div>
+            <div class="shop-stat-pill">
+              <span class="stat-pill-label" data-i18n="shop.readyLots">Lots Ready for Recycler</span>
+              <strong class="stat-pill-val" id="shopReadyLots">0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="shop-meta-row">
+          <div class="shop-meta-field">
+            <label data-i18n="shop.shopNameLabel">Scrap Shop Name</label>
+            <input type="text" id="shopNameInput" data-i18n-placeholder="shop.shopNamePlaceholder" value="Sri Murugan Scrap Shop" placeholder="e.g. Sri Murugan Scrap Shop">
+          </div>
+          <div class="shop-meta-field">
+            <label data-i18n="shop.ownerPhoneLabel">Shop Phone Number</label>
+            <input type="tel" id="shopPhoneInput" data-i18n-placeholder="shop.ownerPhonePlaceholder" value="9840123456" placeholder="9876543210" maxlength="10">
+          </div>
+        </div>
+      </div>
+
+      <!-- Shop Sub-Navigation (Tabs) -->
+      <div class="shop-subtabs-row margin-top">
+        <button type="button" class="shop-subtab-btn active" id="shopSubtabHomeBtn">
+          <span data-i18n="shop.tabHomePickups">Nearby Home Pickups</span> (<span id="nearbyHomeCount">0</span>)
+        </button>
+        <button type="button" class="shop-subtab-btn" id="shopSubtabStockBtn">
+          <span data-i18n="shop.tabInventory">Shop Stock & Recycler Dispatch</span> (<span id="inShopCount">0</span>)
+        </button>
+      </div>
+
+      <!-- Shop Sub-Panel 1: Nearby Home Pickups -->
+      <div id="shopHomePickupsPanel" class="shop-panel">
+        <div class="card-box full-width margin-top">
+          <div class="map-header">
+            <h3 data-i18n="shop.mapTitle">Home Pickups & Shop Location Map</h3>
+            <small data-i18n="shop.mapSubtitle">Pins show local resident requests near your scrap shop.</small>
+          </div>
+          <div id="shopMap" class="map-container"></div>
+        </div>
+
+        <div class="card-box full-width margin-top">
+          <div class="section-header">
+            <h3 data-i18n="shop.tabHomePickups">Nearby Home Pickups</h3>
+            <p class="section-subtitle">Residents waiting for your scrap shop to visit and collect.</p>
+          </div>
+          <div id="shopHomeRequestsList" class="cards-list grid-cards">
+            <p class="loading" data-i18n="shop.emptyHomeRequests">No pending home pickup requests nearby right now.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shop Sub-Panel 2: Shop Stock & Recycler Dispatch -->
+      <div id="shopStockPanel" class="shop-panel" style="display:none;">
+        <div class="card-box full-width margin-top shop-dispatch-banner">
+          <div class="dispatch-banner-text">
+            <h3 data-i18n="shop.stockTitle">Current Scrap Stock in Scrap Shop</h3>
+            <p data-i18n="shop.stockSubtitle">Materials aggregated from local residents waiting for industrial recycler truck.</p>
+          </div>
+          <button type="button" class="btn primary-btn dispatch-btn" id="requestRecyclerBulkBtn" data-i18n="shop.requestRecyclerBtn">
+            Request Bulk Recycler Pickup
+          </button>
+        </div>
+
+        <div class="card-box full-width margin-top">
+          <div id="shopStockList" class="cards-list grid-cards">
+            <p class="loading">Loading shop inventory...</p>
+          </div>
+        </div>
+      </div>
+
+      </div> <!-- /#shopDashboardPanel -->
+    </main>
+
+    <!-- ================= 3. AUTHORIZED RECYCLER VIEW (INDUSTRIAL) ================= -->
+    <main id="recyclerView" class="view-panel">
+
+      <!-- 1. INDUSTRIAL RECYCLER AUTH GATE (Visible when not signed into Recycler) -->
+      <div id="recyclerAuthGate" class="auth-gate-panel">
+        <div class="auth-gate-container">
+
+          <!-- Left: Industrial Recycler Facility Login Form Card -->
+          <div class="auth-card">
+            <div class="auth-card-header">
+              <span class="role-pill-badge badge-pcb">Certified Industrial Plant</span>
+              <h2 class="auth-title" data-i18n="auth.recyclerTitle">Industrial Recycler Facility Portal</h2>
+              <p class="auth-subtitle" data-i18n="auth.recyclerSubtitle">Authorized access for certified industrial smelting and high-volume e-waste recycling plants.</p>
+            </div>
+
+            <form id="recyclerAuthForm" class="auth-form">
+              <div class="form-group">
+                <label data-i18n="auth.plantIdLabel">Facility / Plant ID</label>
+                <select id="recyclerAuthPlantId" class="auth-select">
+                  <option value="PLANT-CHE-01">PLANT-CHE-01 — Chennai Central Recycler Plant</option>
+                  <option value="PLANT-COI-02">PLANT-COI-02 — Coimbatore Green Recovery Hub</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="auth.passcodeLabel">Facility Access Passcode</label>
+                <input type="password" id="recyclerAuthPin" value="recycle2026" placeholder="Passcode (default: recycle2026)" required>
+              </div>
+
+              <div id="recyclerAuthError" class="auth-alert-error" style="display: none;"></div>
+
+              <button type="submit" id="recyclerAuthSubmitBtn" class="btn primary-btn btn-auth-submit" data-i18n="auth.recyclerSignInBtn">
+                Authorize Facility Access
+              </button>
+            </form>
+          </div>
+
+          <!-- Right: Industrial Recycler Visual Card with Floating Motivational Text -->
+          <div class="auth-visual-card">
+            <img src="assets/recycler%20portal.png" alt="Industrial Recycler Portal Facility" class="auth-visual-img">
+            <div class="auth-visual-gradient"></div>
+            <div class="auth-floating-content">
+              <div class="auth-floating-tag badge-tag-pcb">Industrial Facility Hub</div>
+              <h3 class="auth-floating-title">High-Yield Sustainable Material Recovery</h3>
+              <p class="auth-floating-desc">Transform aggregated bulk electronic scrap lots into pure secondary raw materials. Certified circular supply chain tracking from doorstep to high-precision extraction.</p>
+              <div class="auth-floating-highlights">
+                <span class="auth-highlight-pill">CPCB & TNPCB Compliant</span>
+                <span class="auth-highlight-pill">Bulk Fleet Dispatch</span>
+                <span class="auth-highlight-pill">Traceable Chain of Custody</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 2. RECYCLER DASHBOARD PANEL (Visible when signed in) -->
+      <div id="recyclerDashboardPanel" class="portal-panel-inner" style="display: none;">
+
+        <div class="dashboard-header card-box full-width">
+        <div>
+          <span class="role-pill-badge badge-pcb">Certified Industrial Plant</span>
+          <h3 data-i18n="recycler.dashboardTitle">Industrial Recycler Dashboard</h3>
+          <p class="section-subtitle" data-i18n="recycler.mapSubtitle">Collect bulk aggregated scrap lots directly from local scrap shops.</p>
+        </div>
+        <small class="status-hint">Hub: Chennai Central Facility</small>
+      </div>
+
+      <!-- Map Container: Shows scrap shop locations with bulk ready lots -->
+      <div class="card-box full-width margin-top">
+        <div class="map-header">
+          <h3 data-i18n="recycler.mapTitle">Scrap Shop Bulk Pickup Network</h3>
+          <small data-i18n="recycler.mapSubtitle">Collect bulk aggregated scrap lots directly from local scrap shops.</small>
+        </div>
+        <div id="recyclerMap" class="map-container map-large"></div>
+      </div>
+
+      <!-- Filter Controls & Cards -->
+      <div class="card-box full-width margin-top">
+        <div class="filter-bar">
+          <h3>Scrap Shop Bulk Lots</h3>
+          <div class="filter-buttons">
+            <button class="filter-btn active" data-filter="all" data-i18n="recycler.filterAll">All Lots</button>
+            <button class="filter-btn" data-filter="In Shop" data-i18n="recycler.filterReady">Ready at Scrap Shop</button>
+            <button class="filter-btn" data-filter="Recycler Assigned" data-i18n="recycler.filterAssigned">Recycler Dispatched</button>
+            <button class="filter-btn" data-filter="Completed" data-i18n="recycler.filterCompleted">100% Recycled</button>
+          </div>
+        </div>
+
+        <div id="recyclerMatchingList" class="cards-list grid-cards">
+          <p class="loading">Scanning for scrap shop bulk lots...</p>
+        </div>
+      </div>
+
+      <!-- Area recycling leaderboard -->
+      <div class="card-box full-width margin-top">
+        <h3 data-i18n="recycler.leaderboardTitle">Top Scrap Aggregation Areas</h3>
+        <ol id="areaLeaderboard" class="leaderboard-list">
+          <li class="loading" data-i18n="recycler.leaderboardEmpty">Collect lots from scrap shops to see top areas.</li>
+        </ol>
+      </div>
+
+      </div> <!-- /#recyclerDashboardPanel -->
+    </main>
+
+  </div>
+
+  <!-- AI Bot Floating Widget -->
+  <div class="ai-bot-container">
+    <button id="toggleBotBtn" class="bot-fab"><span data-i18n="bot.toggle">AI Assistant</span></button>
+
+    <div id="botChatWindow" class="bot-chat-window hidden">
+      <div class="bot-header">
+        <span><span data-i18n="bot.title">Scrap Assistance AI</span></span>
+        <button id="closeBotBtn" class="close-btn" aria-label="Close">&times;</button>
+      </div>
+      <div id="botMessages" class="bot-messages">
+        <div class="bot-msg" data-i18n="bot.greeting">Hello! Ask me how home pickup, your local scrap shop, or industrial recycling works!</div>
+      </div>
+      <div class="bot-input-group">
+        <input type="text" id="botInput" data-i18n-placeholder="bot.placeholder" placeholder="Ask e.g. How does scrap shop pickup work?">
+        <button id="sendBotBtn" class="btn primary-btn" data-i18n="bot.send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Webcam Modal for Desktop/Laptops -->
+  <div id="webcamModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card webcam-modal-card">
+      <div class="modal-header">
+        <h4 data-i18n="home.webcamTitle">Live Camera Capture</h4>
+        <button type="button" id="closeWebcamModalBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="webcam-viewport">
+        <video id="webcamVideo" autoplay playsinline muted></video>
+        <canvas id="webcamCanvas" style="display: none;"></canvas>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="captureWebcamBtn" class="btn primary-btn"><span data-i18n="home.snapPhoto">Snap Photo</span></button>
+        <button type="button" id="cancelWebcamBtn" class="btn secondary-btn" data-i18n="otp.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OTP Verification Modal (Household ➔ Scrap Shop & Scrap Shop ➔ Recycler) -->
+  <div id="otpModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card otp-modal-card">
+      <div class="modal-header">
+        <h4 id="otpModalTitle"><span data-i18n="otp.modalHeader">OTP Verification</span></h4>
+        <button type="button" id="closeOtpModalBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="otpModalSubtitle" class="otp-modal-desc" data-i18n="otp.modalSubtitle">Enter the 4-digit code provided to verify collection.</p>
+        
+        <div class="otp-input-wrapper">
+          <input type="tel" id="otpCodeInput" maxlength="4" pattern="[0-9]{4}" placeholder="• • • •" autocomplete="one-time-code" autofocus />
+        </div>
+
+        <div id="otpErrorMsg" class="otp-alert-error" style="display: none;"></div>
+        <div id="otpSuccessMsg" class="otp-alert-success" style="display: none;"></div>
+
+        <div class="otp-modal-resend-row">
+          <button type="button" id="modalResendOtpBtn" class="btn-link-action">Send / Resend OTP to Resident Mobile</button>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" id="submitOtpBtn" class="btn primary-btn" data-i18n="otp.verifyConfirm">Verify OTP & Confirm</button>
+          <button type="button" id="cancelOtpBtn" class="btn secondary-btn" data-i18n="otp.cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js?v=11.0"></script>
+</body>
+</html>
