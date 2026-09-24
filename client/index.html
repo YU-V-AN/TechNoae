@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tech Nova — 3-Tier E-Waste Network (Home -> Scrap Shop -> Recycler)</title>
-  <link rel="stylesheet" href="style.css?v=11.0">
+  <link rel="stylesheet" href="style.css?v=12.0">
 
   <!-- Type: IBM Plex Sans for UI text, IBM Plex Mono for weights/metrics -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -599,13 +599,21 @@
     <div id="botChatWindow" class="bot-chat-window hidden">
       <div class="bot-header">
         <span><span data-i18n="bot.title">Scrap Assistance AI</span></span>
-        <button id="closeBotBtn" class="close-btn" aria-label="Close">&times;</button>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button type="button" id="botVoiceToggleBtn" class="btn-bot-toolbar" title="Toggle Voice Output">Voice: ON</button>
+          <button id="closeBotBtn" class="close-btn" aria-label="Close">&times;</button>
+        </div>
+      </div>
+      <div class="bot-quick-bar">
+        <button type="button" id="startVoiceRegBtn" class="btn-voice-register">Voice Register E-Waste</button>
+        <span id="voiceListenStatus" class="voice-listen-status" style="display: none;">Listening...</span>
       </div>
       <div id="botMessages" class="bot-messages">
-        <div class="bot-msg" data-i18n="bot.greeting">Hello! Ask me how home pickup, your local scrap shop, or industrial recycling works!</div>
+        <div class="bot-msg" data-i18n="bot.greeting">Hello! Ask me how home pickup, your local scrap shop, or industrial recycling works, or click "Voice Register E-Waste" to register by speaking!</div>
       </div>
       <div class="bot-input-group">
-        <input type="text" id="botInput" data-i18n-placeholder="bot.placeholder" placeholder="Ask e.g. How does scrap shop pickup work?">
+        <button type="button" id="voiceBotBtn" class="btn secondary-btn btn-mic-input" title="Speak to AI">Mic</button>
+        <input type="text" id="botInput" data-i18n-placeholder="bot.placeholder" placeholder="Speak or type your answer...">
         <button id="sendBotBtn" class="btn primary-btn" data-i18n="bot.send">Send</button>
       </div>
     </div>
@@ -658,6 +666,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/app.js?v=11.0"></script>
+  <script type="module" src="js/app.js?v=12.0"></script>
 </body>
 </html>

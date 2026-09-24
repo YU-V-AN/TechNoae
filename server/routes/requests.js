@@ -353,7 +353,19 @@ router.post(["/requests/:id/otp/send", "/requests/:id/otp/resend"], async (req, 
       return res.status(404).json({ error: "Pickup request not found." });
     }
 
-    const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    // Generate a 4-digit OTP guaranteed to be unique across all active requests
+    const usedOtpsRows = await all("SELECT householdOtp, shopOtp FROM pickup_requests WHERE householdOtp IS NOT NULL OR shopOtp IS NOT NULL");
+    const usedOtps = new Set();
+    for (const r of usedOtpsRows) {
+      if (r.householdOtp) usedOtps.add(String(r.householdOtp));
+      if (r.shopOtp) usedOtps.add(String(r.shopOtp));
+    }
+    let newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    let attempts = 0;
+    while (usedOtps.has(newOtp) && attempts < 100) {
+      newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+      attempts++;
+    }
     const now = Date.now();
 
     if (tier === "household") {

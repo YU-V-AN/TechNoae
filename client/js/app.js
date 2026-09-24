@@ -71,10 +71,21 @@ export function applyTheme(theme) {
 export function showSmsBanner(phone, otp) {
   const banner = document.getElementById("smsAlertBanner");
   if (!banner) return;
+
+  // Strictly verify the banner belongs to the currently signed-in resident user
+  const session = getResidentSession();
+  const sessionPhone = session?.phone ? String(session.phone).replace(/\D/g, "").slice(-10) : "";
+  const targetPhone = phone ? String(phone).replace(/\D/g, "").slice(-10) : "";
+
+  if (!session || (sessionPhone && targetPhone && sessionPhone !== targetPhone)) {
+    banner.style.display = "none";
+    return;
+  }
+
   banner.innerHTML = `
     <div class="sms-banner-content">
       <span class="sms-banner-badge">Incoming SMS</span>
-      <span class="sms-banner-text">Alert to <strong>+91 ${phone}</strong>: Your doorstep scrap pickup verification OTP is <span class="sms-banner-code">${otp}</span>. Share this code with the scrap shop collector upon arrival.</span>
+      <span class="sms-banner-text">Alert to <strong>+91 ${targetPhone || phone}</strong>: Your doorstep scrap pickup verification OTP is <span class="sms-banner-code">${otp}</span>. Share this code with the scrap shop collector upon arrival.</span>
     </div>
     <button type="button" class="sms-banner-close" aria-label="Dismiss">&times;</button>
   `;
@@ -102,7 +113,7 @@ export async function sendOtpToResident(id, phone) {
         item.householdOtpVerified = false;
       }
       const targetPhone = phone || data.phone || "Resident";
-      // Populate the SMS banner strictly inside the Resident page (#homeDashboardPanel)
+      // Populate the SMS banner strictly if the resident matches
       showSmsBanner(targetPhone, data.otp);
       renderAllViews();
 
@@ -157,6 +168,15 @@ export function setResidentSession(session) {
     if (phoneEl) phoneEl.value = session.phone || "";
   } else {
     localStorage.removeItem("technova_auth_resident");
+    localStorage.removeItem("technova_resident_id");
+    localStorage.removeItem("technova_resident_phone");
+    residentUid = null;
+    const nameEl = document.getElementById("residentName");
+    const phoneEl = document.getElementById("residentPhone");
+    if (nameEl) nameEl.value = "";
+    if (phoneEl) phoneEl.value = "";
+    const banner = document.getElementById("smsAlertBanner");
+    if (banner) banner.style.display = "none";
   }
 }
 
@@ -897,14 +917,27 @@ function renderHomeLots(requests) {
   const container = document.getElementById("homeStatusList");
   if (!container) return;
 
-  const storedPhone = localStorage.getItem("technova_resident_phone");
+  const session = getResidentSession();
+  const sessionPhone = session?.phone ? String(session.phone).replace(/\D/g, "").slice(-10) : "";
+  const sessionId = session?.id || "";
+
+  // Strictly filter so each Resident ONLY sees their own registered e-waste & their own unique OTP
   const myLots = requests.filter(r => {
-    // Show lot if submitted by current resident ID, current phone, or if no filter exists yet
-    if (!residentUid && !storedPhone) return true;
-    if (residentUid && r.residentId === residentUid) return true;
-    if (storedPhone && r.residentPhone === storedPhone) return true;
-    return true; // Keep visible on resident's home device
+    if (!session) return false;
+    const reqPhone = r.residentPhone ? String(r.residentPhone).replace(/\D/g, "").slice(-10) : "";
+    if (sessionPhone && reqPhone === sessionPhone) return true;
+    if (sessionId && r.residentId === sessionId) return true;
+    return false;
   });
+
+  // Automatically display or hide the SMS OTP banner strictly for this signed-in resident
+  const banner = document.getElementById("smsAlertBanner");
+  const activeOtpLot = myLots.find(r => r.status === "Shop Accepted" && r.householdOtp && !r.householdOtpVerified);
+  if (activeOtpLot && sessionPhone) {
+    showSmsBanner(activeOtpLot.residentPhone || sessionPhone, activeOtpLot.householdOtp);
+  } else if (banner) {
+    banner.style.display = "none";
+  }
 
   const completedCount = myLots.filter(r => r.status === "Completed").length;
   const handedOverWeight = myLots
@@ -1995,24 +2028,584 @@ languageSelect.addEventListener("change", (e) => {
 });
 
 // =========================================================
-// 12. AI ASSISTANT BOT (3-Tier Indian Context)
+// 12. MULTILINGUAL VOICE AI ASSISTANT & GUIDED E-WASTE REGISTRATION
 // =========================================================
 const toggleBotBtn = document.getElementById("toggleBotBtn");
 const closeBotBtn = document.getElementById("closeBotBtn");
 const botChatWindow = document.getElementById("botChatWindow");
 const sendBotBtn = document.getElementById("sendBotBtn");
+const voiceBotBtn = document.getElementById("voiceBotBtn");
+const startVoiceRegBtn = document.getElementById("startVoiceRegBtn");
+const botVoiceToggleBtn = document.getElementById("botVoiceToggleBtn");
+const voiceListenStatus = document.getElementById("voiceListenStatus");
 const botInput = document.getElementById("botInput");
 const botMessages = document.getElementById("botMessages");
 
-toggleBotBtn.addEventListener("click", () => botChatWindow.classList.toggle("hidden"));
-closeBotBtn.addEventListener("click", () => botChatWindow.classList.add("hidden"));
+let isBotVoiceEnabled = true;
+let activeSpeechRecognition = null;
+let isListeningNow = false;
 
-function appendMessage(sender, text) {
+// Guided Registration State Machine
+let botRegFlow = {
+  active: false,
+  step: null, // "category" | "weight" | "name" | "phone" | "notes"
+  data: {
+    type: "Printed Circuit Boards (PCBs)",
+    weight: 1.5,
+    residentName: "",
+    residentPhone: "",
+    residentNotes: ""
+  }
+};
+
+const LANG_SPEECH_LOCALE = {
+  en: "en-IN",
+  ta: "ta-IN",
+  hi: "hi-IN",
+  te: "te-IN",
+  kn: "kn-IN",
+  mr: "mr-IN",
+  bn: "bn-IN",
+  gu: "gu-IN",
+  ml: "ml-IN"
+};
+
+const CATEGORY_DEFAULT_IMAGES = {
+  "Printed Circuit Boards (PCBs)": "assets/pcb.jpg",
+  "Copper Cables & Wires": "assets/wires.jpg",
+  "Batteries (Li-ion/Lead Acid)": "assets/battery.jpg",
+  "Display Screens / CRTs": "assets/screens.jpg",
+  "Mixed Electronic Scrap": "assets/old-electronics.jpg"
+};
+
+const VOICE_REG_PROMPTS = {
+  en: {
+    startBtn: "Voice Register E-Waste",
+    askCategory: "Let's register your e-waste! Question 1: What type of e-waste do you have? Speak or select: 1) PCBs, 2) Copper Wires, 3) Batteries, 4) Display Screens, or 5) Mixed Electronics.",
+    askWeight: (cat) => `Selected: ${cat}. Question 2: What is the approximate weight in kilograms (kg)? Please speak a number like 2 or 5 kg.`,
+    askName: "Question 3: Please speak or enter your full name.",
+    askPhone: "Question 4: Please speak or enter your 10-digit mobile number for unique OTP verification.",
+    askNotes: (wt) => `Weight set to ${wt} kg. Final Question: Please say any street landmark or pickup timing note (or say "Done" to submit now).`,
+    submitting: "Registering your e-waste pickup request now...",
+    success: (cat, wt, phone) => `Success! Your e-waste (${cat}, ${wt} kg) has been registered under +91 ${phone}. Your unique OTP will appear only on your Resident page when the scrap shop collector arrives!`,
+    cancelled: "Voice registration cancelled. How else can I help you?"
+  },
+  ta: {
+    startBtn: "குரல் மூலம் மின்-கழிவு பதிவு",
+    askCategory: "உங்கள் மின்-கழிவை பதிவு செய்வோம்! கேள்வி 1: உங்களிடம் எந்த வகை மின்-கழிவு உள்ளது? கூறவும்: 1) சர்க்யூட் போர்டு (PCB), 2) செப்பு கம்பிகள், 3) பேட்டரிகள், 4) திரைகள், 5) கலப்பு மின்னணு கழிவுகள்.",
+    askWeight: (cat) => `தேர்ந்தெடுக்கப்பட்டது: ${cat}. கேள்வி 2: தோராயமான எடை எத்தனை கிலோ (kg)? (உதாரணம்: 2 அல்லது 5 கிலோ என்று கூறுங்கள்).`,
+    askName: "கேள்வி 3: உங்கள் முழு பெயரைக் கூறுங்கள்.",
+    askPhone: "கேள்வி 4: தனிப்பட்ட OTP பெற உங்கள் 10 இலக்க மொபைல் எண்ணைக் கூறுங்கள்.",
+    askNotes: (wt) => `எடை ${wt} kg. இறுதி கேள்வி: உங்கள் தெரு அடையாளம் அல்லது நேரத்தை கூறுங்கள் (அல்லது உடனே பதிவு செய்ய "சரி" என்று கூறுங்கள்).`,
+    submitting: "உங்கள் மின்-கழிவு கோரிக்கை பதிவு செய்யப்படுகிறது...",
+    success: (cat, wt, phone) => `வெற்றி! உங்கள் மின்-கழிவு (${cat}, ${wt} kg) +91 ${phone} எண்ணில் பதிவு செய்யப்பட்டது. உங்களுக்கான தனிப்பட்ட OTP உங்கள் பக்கத்தில் மட்டுமே தோன்றும்!`,
+    cancelled: "குரல் பதிவு ரத்து செய்யப்பட்டது."
+  },
+  hi: {
+    startBtn: "आवाज़ से ई-कचरा पंजीकरण",
+    askCategory: "आइए आपका ई-कचरा पंजीकृत करें! प्रश्न 1: आपके पास किस प्रकार का ई-कचरा है? बोलें या चुनें: 1) पीसीबी (PCB), 2) तांबे के तार, 3) बैटरी, 4) डिस्प्ले स्क्रीन, या 5) मिश्रित इलेक्ट्रॉनिक्स।",
+    askWeight: (cat) => `चुना गया: ${cat}। प्रश्न 2: लगभग वजन कितने किलोग्राम (kg) है? जैसे 2 या 5 किलो बोलें।`,
+    askName: "प्रश्न 3: कृपया अपना पूरा नाम बताएं।",
+    askPhone: "प्रश्न 4: यूनिक OTP के लिए अपना 10 अंकों का मोबाइल नंबर बताएं।",
+    askNotes: (wt) => `वजन ${wt} kg सेट किया गया। अंतिम प्रश्न: कोई लैंडमार्क या समय बताएं (या तुरंत सबमिट करने के लिए "Done" बोलें)।`,
+    submitting: "आपका ई-कचरा पिकअप अनुरोध पंजीकृत किया जा रहा है...",
+    success: (cat, wt, phone) => `सफलता! आपका ई-कचरा (${cat}, ${wt} kg) +91 ${phone} पर पंजीकृत हो गया है। आपका यूनिक OTP केवल आपके रेजिडेंट पेज पर दिखेगा!`,
+    cancelled: "पंजीकरण रद्द कर दिया गया।"
+  },
+  te: {
+    startBtn: "వాయిస్ ద్వారా ఈ-వేస్ట్ నమోదు",
+    askCategory: "మీ ఈ-వేస్ట్ నమోదు చేద్దాం! ప్రశ్న 1: మీ వద్ద ఏ రకమైన ఈ-వేస్ట్ ఉంది? 1) PCB బోర్డులు, 2) రాగి తీగలు, 3) బ్యాటరీలు, 4) స్క్రీన్లు, 5) మిశ్రమ ఎలక్ట్రానిక్స్.",
+    askWeight: (cat) => `ఎంచుకున్నది: ${cat}. ప్రశ్న 2: బరువు సుమారు ఎన్ని కిలోలు (kg)? (ఉదా: 2 లేదా 5 kg అని చెప్పండి).`,
+    askName: "ప్రశ్న 3: దయచేసి మీ పూర్తి పేరు చెప్పండి.",
+    askPhone: "ప్రశ్న 4: మీ 10 అంకెల మొబైల్ నంబర్ చెప్పండి.",
+    askNotes: (wt) => `బరువు ${wt} kg. చివరి ప్రశ్న: మీ వీధి గుర్తు చెప్పండి (లేదా వెంటనే నమోదు చేయడానికి "Done" అని చెప్పండి).`,
+    submitting: "మీ ఈ-వేస్ట్ అభ్యర్థన నమోదు చేయబడుతోంది...",
+    success: (cat, wt, phone) => `విజయం! మీ ఈ-వేస్ట్ (${cat}, ${wt} kg) +91 ${phone} నంబర్‌పై నమోదు చేయబడింది!`,
+    cancelled: "వాయిస్ నమోదు రద్దు చేయబడింది."
+  },
+  kn: {
+    startBtn: "ಧ್ವನಿ ಮೂಲಕ ಇ-ತ್ಯಾಜ್ಯ ನೋಂದಣಿ",
+    askCategory: "ನಿಮ್ಮ ಇ-ತ್ಯಾಜ್ಯವನ್ನು ನೋಂದಾಯಿಸೋಣ! ಪ್ರಶ್ನೆ 1: ಯಾವ ರೀತಿಯ ಇ-ತ್ಯಾಜ್ಯವಿದೆ? 1) PCB ಬೋರ್ಡ್, 2) ತಾಮ್ರದ ತಂತಿಗಳು, 3) ಬ್ಯಾಟರಿಗಳು, 4) ಡಿಸ್ಪ್ಲೇ ಸ್ಕ್ರೀನ್, 5) ಮಿಶ್ರ ಎಲೆಕ್ಟ್ರಾನಿಕ್ಸ್.",
+    askWeight: (cat) => `ಆಯ್ಕೆ: ${cat}. ಪ್ರಶ್ನೆ 2: ಅಂದಾಜು ತೂಕ ಎಷ್ಟು ಕಿಲೋ (kg)? (ಉದಾ: 2 ಅಥವಾ 5 kg ಎಂದು ಹೇಳಿ).`,
+    askName: "ಪ್ರಶ್ನೆ 3: ದಯವಿಟ್ಟು ನಿಮ್ಮ ಹೆಸರನ್ನು ಹೇಳಿ.",
+    askPhone: "ಪ್ರಶ್ನೆ 4: ನಿಮ್ಮ 10 ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯನ್ನು ಹೇಳಿ.",
+    askNotes: (wt) => `ತೂಕ ${wt} kg. ಕೊನೆಯ ಪ್ರಶ್ನೆ: ನಿಮ್ಮ ವಿಳಾಸದ ಗುರುತು ಹೇಳಿ (ಅಥವಾ ಸಲ್ಲಿಸಲು "Done" ಎಂದು ಹೇಳಿ).`,
+    submitting: "ನಿಮ್ಮ ಇ-ತ್ಯಾಜ್ಯ ವಿನಂತಿಯನ್ನು ನೋಂದಾಯಿಸಲಾಗುತ್ತಿದೆ...",
+    success: (cat, wt, phone) => `ಯಶಸ್ವಿಯಾಗಿದೆ! ನಿಮ್ಮ ಇ-ತ್ಯಾಜ್ಯ (${cat}, ${wt} kg) +91 ${phone} ಸಂಖ್ಯೆಗೆ ನೋಂದಾಯಿಸಲಾಗಿದೆ!`,
+    cancelled: "ನೋಂದಣಿ ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ."
+  },
+  mr: {
+    startBtn: "आवाजाने ई-कचरा नोंदणी",
+    askCategory: "चला तुमचा ई-कचरा नोंदवूया! प्रश्न 1: तुमच्याकडे कोणत्या प्रकारचा ई-कचरा आहे? 1) PCB, 2) तांब्याच्या तारा, 3) बॅटरी, 4) स्क्रीन, 5) मिश्रित इलेक्ट्रॉनिक्स.",
+    askWeight: (cat) => `निवडले: ${cat}. प्रश्न 2: अंदाजे वजन किती किलो (kg) आहे?`,
+    askName: "प्रश्न 3: कृपया तुमचे पूर्ण नाव सांगा.",
+    askPhone: "प्रश्न 4: तुमचा 10 अंकी मोबाईल नंबर सांगा.",
+    askNotes: (wt) => `वजन ${wt} kg. शेवटचा प्रश्न: तुमची खूण किंवा वेळ सांगा (किंवा लगेच सबमिट करण्यासाठी "Done" म्हणा).`,
+    submitting: "तुमची ई-कचरा विनंती नोंदवली जात आहे...",
+    success: (cat, wt, phone) => `यशस्वी! तुमचा ई-कचरा (${cat}, ${wt} kg) +91 ${phone} वर नोंदवला गेला आहे!`,
+    cancelled: "नोंदणी रद्द केली."
+  },
+  bn: {
+    startBtn: "ভয়েস ই-বর্জ্য নিবন্ধন",
+    askCategory: "চলুন আপনার ই-বর্জ্য নিবন্ধন করি! প্রশ্ন ১: আপনার কাছে কী ধরনের ই-বর্জ্য আছে? ১) PCB, ২) তামার তার, ৩) ব্যাটারি, ৪) ডিসপ্লে স্ক্রিন, ৫) মিশ্র ইলেকট্রনিক্স।",
+    askWeight: (cat) => `নির্বাচিত: ${cat}। প্রশ্ন ২: আনুমানিক ওজন কত কেজি (kg)?`,
+    askName: "প্রশ্ন ৩: অনুগ্রহ করে আপনার পুরো নাম বলুন।",
+    askPhone: "প্রশ্ন ৪: আপনার ১০ সংখ্যার মোবাইল নম্বর বলুন।",
+    askNotes: (wt) => `ওজন ${wt} kg। শেষ প্রশ্ন: কোনো ল্যান্ডমার্ক বলুন (অথবা জমা দিতে "Done" বলুন)।`,
+    submitting: "আপনার ই-বর্জ্য অনুরোধ জমা দেওয়া হচ্ছে...",
+    success: (cat, wt, phone) => `সফল! আপনার ই-বর্জ্য (${cat}, ${wt} kg) +91 ${phone} নম্বরে নিবন্ধিত হয়েছে!`,
+    cancelled: "নিবন্ধন বাতিল করা হয়েছে।"
+  },
+  gu: {
+    startBtn: "અવાજથી ઈ-વેસ્ટ નોંધણી",
+    askCategory: "ચાલો તમારો ઈ-વેસ્ટ રજીસ્ટર કરીએ! પ્રશ્ન 1: તમારી પાસે કયા પ્રકારનો ઈ-વેસ્ટ છે? 1) PCB, 2) તાંબાના વાયર, 3) બેટરી, 4) સ્ક્રીન, 5) મિશ્ર ઈલેક્ટ્રોનિક્સ.",
+    askWeight: (cat) => `પસંદ કરેલ: ${cat}. પ્રશ્ન 2: અંદાજિત વજન કેટલા કિલો (kg) છે?`,
+    askName: "પ્રશ્ન 3: કૃપા કરીને તમારું પૂરું નામ બોલો.",
+    askPhone: "પ્રશ્ન 4: તમારો 10 અંકનો મોબાઈલ નંબર બોલો.",
+    askNotes: (wt) => `વજન ${wt} kg. છેલ્લો પ્રશ્ન: કોઈ લેન્ડમાર્ક બોલો (અથವಾ સબમિટ કરવા "Done" બોલો).`,
+    submitting: "તમારી ઈ-વેસ્ટ વિનંતી નોંધાઈ રહી છે...",
+    success: (cat, wt, phone) => `સફળતા! તમારો ઈ-વેસ્ટ (${cat}, ${wt} kg) +91 ${phone} પર નોંધાઈ ગયો છે!`,
+    cancelled: "નોંધણી રદ કરવામાં આવી."
+  },
+  ml: {
+    startBtn: "ശബ്ദത്തിലൂടെ ഇ-വേസ്റ്റ് രജിസ്ട്രേഷൻ",
+    askCategory: "നിങ്ങളുടെ ഇ-വേസ്റ്റ് രജിസ്റ്റർ ചെയ്യാം! ചോദ്യം 1: ഏത് തരം ഇ-വേസ്റ്റ് ആണ് ഉള്ളത്? 1) PCB ബോർഡ്, 2) ചെമ്പ് കമ്പികൾ, 3) ബാറ്ററികൾ, 4) സ്ക്രീനുകൾ, 5) മിക്സഡ് ഇലക്ട്രോണിക്സ്.",
+    askWeight: (cat) => `തിരഞ്ഞെടുത്തത്: ${cat}. ചോദ്യം 2: ഏകദേശം എത്ര കിലോ (kg) ഭാരമുണ്ട്?`,
+    askName: "ചോദ്യം 3: നിങ്ങളുടെ മുഴുവൻ പേര് പറയുക.",
+    askPhone: "ചോദ്യം 4: നിങ്ങളുടെ 10 അക്ക മൊബൈൽ നമ്പർ പറയുക.",
+    askNotes: (wt) => `ഭാരം ${wt} kg. അവസാന ചോദ്യം: ലാൻഡ്മാർക്ക് പറയുക (അല്ലെങ്കിൽ ഉടൻ സമർപ്പിക്കാൻ "Done" എന്ന് പറയുക).`,
+    submitting: "നിങ്ങളുടെ ഇ-വേസ്റ്റ് അപേക്ഷ രജിസ്റ്റർ ചെയ്യുന്നു...",
+    success: (cat, wt, phone) => `വിജയം! നിങ്ങളുടെ ഇ-വേസ്റ്റ് (${cat}, ${wt} kg) +91 ${phone} നമ്പറിൽ രജിസ്റ്റർ ചെയ്തു!`,
+    cancelled: "രജിസ്ട്രേഷൻ റദ്ദാക്കി."
+  }
+};
+
+function getRegPrompt(lang) {
+  return VOICE_REG_PROMPTS[lang] || VOICE_REG_PROMPTS.en;
+}
+
+// Update Voice Register button label when language changes
+languageSelect.addEventListener("change", () => {
+  if (startVoiceRegBtn) {
+    startVoiceRegBtn.textContent = getRegPrompt(currentLang).startBtn;
+  }
+});
+
+if (botVoiceToggleBtn) {
+  botVoiceToggleBtn.addEventListener("click", () => {
+    isBotVoiceEnabled = !isBotVoiceEnabled;
+    botVoiceToggleBtn.textContent = isBotVoiceEnabled ? "Voice: ON" : "Voice: OFF";
+    if (!isBotVoiceEnabled && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  });
+}
+
+function speakBotMessage(text, autoListenAfter = false) {
+  if (!isBotVoiceEnabled || !("speechSynthesis" in window)) {
+    if (autoListenAfter) setTimeout(() => startVoiceInput(), 350);
+    return;
+  }
+  try {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    const targetLocale = LANG_SPEECH_LOCALE[currentLang] || "en-IN";
+    utter.lang = targetLocale;
+
+    const voices = window.speechSynthesis.getVoices();
+    const langPrefix = currentLang === "en" ? "en" : currentLang;
+    const matchedVoice = voices.find(v => v.lang.toLowerCase().startsWith(targetLocale.toLowerCase())) ||
+                         voices.find(v => v.lang.toLowerCase().startsWith(langPrefix));
+    if (matchedVoice) utter.voice = matchedVoice;
+
+    utter.onend = () => {
+      if (autoListenAfter && botRegFlow.active) {
+        setTimeout(() => startVoiceInput(), 300);
+      }
+    };
+    utter.onerror = () => {
+      if (autoListenAfter && botRegFlow.active) {
+        setTimeout(() => startVoiceInput(), 300);
+      }
+    };
+    window.speechSynthesis.speak(utter);
+  } catch (err) {
+    if (autoListenAfter && botRegFlow.active) {
+      setTimeout(() => startVoiceInput(), 350);
+    }
+  }
+}
+
+toggleBotBtn.addEventListener("click", () => botChatWindow.classList.toggle("hidden"));
+closeBotBtn.addEventListener("click", () => {
+  botChatWindow.classList.add("hidden");
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  stopVoiceInput();
+});
+
+function appendMessage(sender, text, options = null, speak = false, autoListen = false) {
   const msgDiv = document.createElement("div");
   msgDiv.className = sender === "user" ? "user-msg" : "bot-msg";
-  msgDiv.textContent = text;
+
+  const textSpan = document.createElement("div");
+  textSpan.textContent = text;
+  msgDiv.appendChild(textSpan);
+
+  if (Array.isArray(options) && options.length > 0) {
+    const optsWrap = document.createElement("div");
+    optsWrap.className = "bot-options-wrap";
+    options.forEach(opt => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bot-option-pill";
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => {
+        botInput.value = opt.value;
+        handleBotSend();
+      });
+      optsWrap.appendChild(btn);
+    });
+    msgDiv.appendChild(optsWrap);
+  }
+
   botMessages.appendChild(msgDiv);
   botMessages.scrollTop = botMessages.scrollHeight;
+
+  if (sender === "bot" && speak) {
+    speakBotMessage(text, autoListen);
+  }
+}
+
+function stopVoiceInput() {
+  if (activeSpeechRecognition) {
+    try { activeSpeechRecognition.stop(); } catch (_) {}
+    activeSpeechRecognition = null;
+  }
+  isListeningNow = false;
+  if (voiceBotBtn) {
+    voiceBotBtn.classList.remove("is-listening");
+    voiceBotBtn.textContent = "Mic";
+  }
+  if (voiceListenStatus) voiceListenStatus.style.display = "none";
+}
+
+function startVoiceInput() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    alert("Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge, or type your response.");
+    return;
+  }
+
+  if (isListeningNow) {
+    stopVoiceInput();
+    return;
+  }
+
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+  try {
+    const recognition = new SpeechRec();
+    activeSpeechRecognition = recognition;
+    recognition.lang = LANG_SPEECH_LOCALE[currentLang] || "en-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      isListeningNow = true;
+      if (voiceBotBtn) {
+        voiceBotBtn.classList.add("is-listening");
+        voiceBotBtn.textContent = "Stop";
+      }
+      if (voiceListenStatus) {
+        voiceListenStatus.textContent = `Listening (${recognition.lang})...`;
+        voiceListenStatus.style.display = "inline-block";
+      }
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript.trim();
+      if (transcript) {
+        botInput.value = transcript;
+        handleBotSend();
+      }
+    };
+
+    recognition.onerror = (e) => {
+      console.warn("Speech recognition notice:", e.error);
+      stopVoiceInput();
+    };
+
+    recognition.onend = () => {
+      stopVoiceInput();
+    };
+
+    recognition.start();
+  } catch (err) {
+    console.warn("Could not start voice input:", err);
+    stopVoiceInput();
+  }
+}
+
+if (voiceBotBtn) {
+  voiceBotBtn.addEventListener("click", () => startVoiceInput());
+}
+
+function detectCategoryFromSpeech(input) {
+  const q = input.toLowerCase();
+  if (q.includes("1") || q.includes("pcb") || q.includes("circuit") || q.includes("board") || q.includes("motherboard") || q.includes("சர்க்யூட்") || q.includes("போர்டு") || q.includes("पीसीबी") || q.includes("बोर्ड")) {
+    return { index: 0, value: "Printed Circuit Boards (PCBs)" };
+  }
+  if (q.includes("2") || q.includes("wire") || q.includes("cable") || q.includes("copper") || q.includes("கம்பி") || q.includes("செப்பு") || q.includes("तार") || q.includes("तांबा") || q.includes("తీగ")) {
+    return { index: 1, value: "Copper Cables & Wires" };
+  }
+  if (q.includes("3") || q.includes("batter") || q.includes("cell") || q.includes("lithium") || q.includes("ups") || q.includes("பேட்டரி") || q.includes("बैटरी") || q.includes("బ్యాటరీ") || q.includes("ಬ್ಯಾಟರಿ")) {
+    return { index: 2, value: "Batteries (Li-ion/Lead Acid)" };
+  }
+  if (q.includes("4") || q.includes("screen") || q.includes("display") || q.includes("monitor") || q.includes("tv") || q.includes("crt") || q.includes("lcd") || q.includes("திரை") || q.includes("स्क्रीन") || q.includes("टीवी") || q.includes("స్క్రీన్")) {
+    return { index: 3, value: "Display Screens / CRTs" };
+  }
+  if (q.includes("5") || q.includes("mix") || q.includes("phone") || q.includes("mobile") || q.includes("laptop") || q.includes("appliance") || q.includes("கலப்பு") || q.includes("மின்னணு") || q.includes("मिश्रित") || q.includes("मोबाइल")) {
+    return { index: 4, value: "Mixed Electronic Scrap" };
+  }
+  return null;
+}
+
+function parseSpokenWeight(input) {
+  const numMatch = input.replace(/,/g, ".").match(/(\d+(\.\d+)?)/);
+  if (numMatch) {
+    const val = parseFloat(numMatch[1]);
+    if (val > 0 && val <= 5000) return val;
+  }
+  const wordMap = {
+    "half": 0.5, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "ஒன்று": 1, "ஒரு": 1, "இரண்டு": 2, "ரெண்டு": 2, "மூன்று": 3, "நான்கு": 4, "ஐந்து": 5, "பத்து": 10,
+    "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पांच": 5, "दस": 10,
+    "ఒకటి": 1, "రెండు": 2, "మూడు": 3, "ఐదు": 5,
+    "ಒಂದು": 1, "ಎರಡು": 2, "ಮೂರು": 3, "ಐದು": 5
+  };
+  const lower = input.toLowerCase();
+  for (const [word, weightVal] of Object.entries(wordMap)) {
+    if (lower.includes(word)) return weightVal;
+  }
+  return null;
+}
+
+function startGuidedVoiceRegistration() {
+  botChatWindow.classList.remove("hidden");
+  const session = getResidentSession();
+  botRegFlow = {
+    active: true,
+    step: "category",
+    data: {
+      type: "Printed Circuit Boards (PCBs)",
+      weight: 1.5,
+      residentName: session?.name || document.getElementById("residentName")?.value.trim() || "",
+      residentPhone: session?.phone || document.getElementById("residentPhone")?.value.trim() || "",
+      residentNotes: ""
+    }
+  };
+
+  const p = getRegPrompt(currentLang);
+  const categoryOptions = [
+    { label: `1. ${categoryLabel("Printed Circuit Boards (PCBs)")}`, value: "1" },
+    { label: `2. ${categoryLabel("Copper Cables & Wires")}`, value: "2" },
+    { label: `3. ${categoryLabel("Batteries (Li-ion/Lead Acid)")}`, value: "3" },
+    { label: `4. ${categoryLabel("Display Screens / CRTs")}`, value: "4" },
+    { label: `5. ${categoryLabel("Mixed Electronic Scrap")}`, value: "5" }
+  ];
+  appendMessage("bot", p.askCategory, categoryOptions, true, true);
+}
+
+if (startVoiceRegBtn) {
+  startVoiceRegBtn.addEventListener("click", () => startGuidedVoiceRegistration());
+}
+
+async function finalizeVoiceRegistration() {
+  const p = getRegPrompt(currentLang);
+  appendMessage("bot", p.submitting, null, false, false);
+
+  try {
+    let session = getResidentSession();
+    const cleanPhone = String(botRegFlow.data.residentPhone).replace(/\D/g, "").slice(-10);
+    const cleanName = botRegFlow.data.residentName || session?.name || "Resident Citizen";
+
+    // Ensure the user is logged into their unique Resident session so they see their registered item & OTP
+    if (!session || String(session.phone).replace(/\D/g, "").slice(-10) !== cleanPhone) {
+      try {
+        const authRes = await fetch("/api/auth/resident", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: cleanName, phone: cleanPhone, pin: "1234", action: "register" })
+        });
+        const authData = await authRes.json();
+        if (authRes.ok && authData.user) {
+          setResidentSession(authData.user);
+          session = authData.user;
+        }
+      } catch (_) {}
+
+      if (!session) {
+        session = { id: "res_" + cleanPhone, name: cleanName, phone: cleanPhone, role: "resident" };
+        setResidentSession(session);
+      }
+      renderNavigation();
+    }
+
+    const payload = {
+      type: botRegFlow.data.type,
+      weight: botRegFlow.data.weight,
+      imageUrl: currentSelectedDataUrl || CATEGORY_DEFAULT_IMAGES[botRegFlow.data.type] || "assets/pcb.jpg",
+      residentId: session.id,
+      residentName: cleanName,
+      residentPhone: cleanPhone,
+      residentNotes: botRegFlow.data.residentNotes || `Registered via Voice AI (${currentLang.toUpperCase()})`,
+      homeArea: selectedHomeAreaLabel || "Chennai Central",
+      homeLat: selectedHomeLat || DEFAULT_HOME_LAT,
+      homeLng: selectedHomeLng || DEFAULT_HOME_LNG,
+      shopName: "Sri Murugan Scrap Shop",
+      shopPhone: "9840123456"
+    };
+
+    const res = await fetch("/api/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Registration failed");
+
+    if (data.request) {
+      allRequests.unshift(data.request);
+      localStorage.setItem("technova_requests_cache", JSON.stringify(allRequests));
+    }
+
+    const catDisplay = categoryLabel(botRegFlow.data.type);
+    const wtDisplay = botRegFlow.data.weight;
+    botRegFlow.active = false;
+    botRegFlow.step = null;
+
+    renderAllViews();
+    appendMessage("bot", p.success(catDisplay, wtDisplay, cleanPhone), null, true, false);
+
+    setTimeout(() => {
+      document.getElementById("homeStatusList")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 300);
+  } catch (err) {
+    botRegFlow.active = false;
+    botRegFlow.step = null;
+    appendMessage("bot", "Error registering e-waste: " + err.message, null, true, false);
+  }
+}
+
+async function processGuidedRegistrationStep(userText) {
+  const p = getRegPrompt(currentLang);
+  const lower = userText.toLowerCase();
+
+  if (lower === "cancel" || lower === "stop" || lower === "exit" || lower.includes("ரத்து") || lower.includes("रद्द")) {
+    botRegFlow.active = false;
+    botRegFlow.step = null;
+    appendMessage("bot", p.cancelled, null, true, false);
+    return;
+  }
+
+  if (botRegFlow.step === "category") {
+    const matched = detectCategoryFromSpeech(userText);
+    if (!matched) {
+      appendMessage("bot", p.askCategory, [
+        { label: `1. ${categoryLabel("Printed Circuit Boards (PCBs)")}`, value: "1" },
+        { label: `2. ${categoryLabel("Copper Cables & Wires")}`, value: "2" },
+        { label: `3. ${categoryLabel("Batteries (Li-ion/Lead Acid)")}`, value: "3" },
+        { label: `4. ${categoryLabel("Display Screens / CRTs")}`, value: "4" },
+        { label: `5. ${categoryLabel("Mixed Electronic Scrap")}`, value: "5" }
+      ], true, true);
+      return;
+    }
+    botRegFlow.data.type = matched.value;
+    selectCardByIndex(matched.index, true);
+    botRegFlow.step = "weight";
+    appendMessage("bot", p.askWeight(categoryLabel(matched.value)), [
+      { label: "1 kg", value: "1" },
+      { label: "2.5 kg", value: "2.5" },
+      { label: "5 kg", value: "5" },
+      { label: "10 kg", value: "10" }
+    ], true, true);
+    return;
+  }
+
+  if (botRegFlow.step === "weight") {
+    const wt = parseSpokenWeight(userText);
+    if (!wt) {
+      appendMessage("bot", p.askWeight(categoryLabel(botRegFlow.data.type)), [
+        { label: "1 kg", value: "1" },
+        { label: "2.5 kg", value: "2.5" },
+        { label: "5 kg", value: "5" }
+      ], true, true);
+      return;
+    }
+    botRegFlow.data.weight = wt;
+    const weightEl = document.getElementById("eWasteWeight");
+    if (weightEl) weightEl.value = wt;
+
+    if (!botRegFlow.data.residentName) {
+      botRegFlow.step = "name";
+      appendMessage("bot", p.askName, null, true, true);
+      return;
+    }
+    const existingPhone = String(botRegFlow.data.residentPhone || "").replace(/\D/g, "").slice(-10);
+    if (existingPhone.length !== 10) {
+      botRegFlow.step = "phone";
+      appendMessage("bot", p.askPhone, null, true, true);
+      return;
+    }
+    botRegFlow.step = "notes";
+    appendMessage("bot", p.askNotes(wt), [
+      { label: "Done / Submit Now", value: "Done" }
+    ], true, true);
+    return;
+  }
+
+  if (botRegFlow.step === "name") {
+    botRegFlow.data.residentName = userText.trim();
+    const nameEl = document.getElementById("residentName");
+    if (nameEl) nameEl.value = botRegFlow.data.residentName;
+
+    const existingPhone = String(botRegFlow.data.residentPhone || "").replace(/\D/g, "").slice(-10);
+    if (existingPhone.length !== 10) {
+      botRegFlow.step = "phone";
+      appendMessage("bot", p.askPhone, null, true, true);
+      return;
+    }
+    botRegFlow.step = "notes";
+    appendMessage("bot", p.askNotes(botRegFlow.data.weight), [
+      { label: "Done / Submit Now", value: "Done" }
+    ], true, true);
+    return;
+  }
+
+  if (botRegFlow.step === "phone") {
+    const digits = userText.replace(/\D/g, "").slice(-10);
+    if (digits.length !== 10) {
+      appendMessage("bot", p.askPhone, null, true, true);
+      return;
+    }
+    botRegFlow.data.residentPhone = digits;
+    const phoneEl = document.getElementById("residentPhone");
+    if (phoneEl) phoneEl.value = digits;
+
+    botRegFlow.step = "notes";
+    appendMessage("bot", p.askNotes(botRegFlow.data.weight), [
+      { label: "Done / Submit Now", value: "Done" }
+    ], true, true);
+    return;
+  }
+
+  if (botRegFlow.step === "notes") {
+    const isSkip = ["done", "submit", "no", "skip", "ok", "okay", "சரி", "போதும்", "ठीक है", "बस", "సరి"].some(w => lower === w || lower.includes(w));
+    botRegFlow.data.residentNotes = isSkip ? "" : userText;
+    const notesEl = document.getElementById("residentNotes");
+    if (notesEl && !isSkip) notesEl.value = userText;
+    await finalizeVoiceRegistration();
+  }
 }
 
 sendBotBtn.addEventListener("click", handleBotSend);
@@ -2024,7 +2617,7 @@ function getLocalAiResponse(query, lang) {
     return `Local scrap shops collect scrap directly from homes, aggregate them in their shop, and arrange bulk truck pickup to certified recycling plants!`;
   }
   if (q.includes("home") || q.includes("pickup") || q.includes("how")) {
-    return `To request a pickup from home: 1) Select your scrap category above, 2) Enter weight, 3) Enter your 10-digit phone number, 4) Pin your home location, and submit! A nearby scrap shop will call you to collect it.`;
+    return `To request a pickup from home: Click "Voice Register E-Waste" above to register by voice, or select your scrap category, weight, and submit!`;
   }
   if (q.includes("pcb") || q.includes("motherboard")) {
     return `PCBs and motherboards are precious e-waste containing copper and chips. Keep them dry and hand them over to your scrap shop for certified refinery processing!`;
@@ -2041,6 +2634,29 @@ async function handleBotSend() {
 
   appendMessage("user", userText);
   botInput.value = "";
+
+  // If the guided voice registration state machine is active, process the answer
+  if (botRegFlow.active) {
+    await processGuidedRegistrationStep(userText);
+    return;
+  }
+
+  // Check if user wants to start registration via voice/text command
+  const lower = userText.toLowerCase();
+  if (
+    lower.includes("register") ||
+    lower.includes("book pickup") ||
+    lower.includes("add scrap") ||
+    lower.includes("add e-waste") ||
+    lower.includes("பதிவு") ||
+    lower.includes("पंजीकरण") ||
+    lower.includes("बुक") ||
+    lower.includes("నమోదు") ||
+    lower.includes("ನೋಂದಣಿ")
+  ) {
+    startGuidedVoiceRegistration();
+    return;
+  }
 
   const loadingMsg = document.createElement("div");
   loadingMsg.className = "bot-msg";
@@ -2065,10 +2681,12 @@ async function handleBotSend() {
     } catch (_) {}
 
     loadingMsg.remove();
-    appendMessage("bot", botReply || getLocalAiResponse(userText, currentLang));
+    const replyText = botReply || getLocalAiResponse(userText, currentLang);
+    appendMessage("bot", replyText, null, true, false);
   } catch (err) {
     loadingMsg.remove();
-    appendMessage("bot", getLocalAiResponse(userText, currentLang));
+    const replyText = getLocalAiResponse(userText, currentLang);
+    appendMessage("bot", replyText, null, true, false);
   }
 }
 

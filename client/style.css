@@ -2872,5 +2872,125 @@ h3 { font-weight: 600; letter-spacing: -0.01em; color: var(--color-ink); }
   color: #a1a1aa;
 }
 
+/* =========================================================
+   AI VOICE ASSISTANT & GUIDED REGISTRATION CONTROLS
+   ========================================================= */
+.bot-quick-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-surface-alt, #f0fdf4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+[data-theme="dark"] .bot-quick-bar {
+  background: #0f1711;
+  border-bottom-color: #2e3d32;
+}
+
+.btn-voice-register {
+  flex: 1;
+  background: #059669;
+  color: #ffffff;
+  border: 1px solid #047857;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-voice-register:hover {
+  background: #047857;
+}
+
+.btn-bot-toolbar {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-bot-toolbar:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.btn-mic-input {
+  padding: 8px 12px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  border: 1.5px solid #059669 !important;
+  color: #059669 !important;
+  background: transparent !important;
+  border-radius: 6px !important;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-mic-input.is-listening {
+  background: #059669 !important;
+  color: #ffffff !important;
+  animation: pulseMic 1.2s infinite ease-in-out;
+}
+
+.voice-listen-status {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #059669;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .voice-listen-status {
+  color: #10b981;
+}
+
+.bot-options-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bot-option-pill {
+  background: #ffffff;
+  color: #064e3b;
+  border: 1px solid #10b981;
+  border-radius: 99px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bot-option-pill:hover {
+  background: #059669;
+  color: #ffffff;
+}
+
+[data-theme="dark"] .bot-option-pill {
+  background: #141a15;
+  color: #10b981;
+  border-color: #10b981;
+}
+
+[data-theme="dark"] .bot-option-pill:hover {
+  background: #10b981;
+  color: #000000;
+}
+
+@keyframes pulseMic {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.82; }
+}
+
+
 
 
