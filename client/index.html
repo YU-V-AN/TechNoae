@@ -57,9 +57,6 @@
     </div>
   </nav>
 
-  <!-- SMS / Mobile Notification Alert Banner (Shown when Scrap Shop triggers OTP) -->
-  <div id="smsAlertBanner" class="sms-notification-banner" style="display: none;"></div>
-
   <div class="container">
 
     <!-- ================= 1. HOME RESIDENT VIEW ================= -->
@@ -126,6 +123,9 @@
 
       <!-- 2. RESIDENT DASHBOARD PANEL (Visible when signed in) -->
       <div id="homeDashboardPanel" class="portal-panel-inner" style="display: none;">
+
+        <!-- SMS / Mobile Notification Alert Banner (Shown ONLY on Resident Page when Scrap Shop triggers OTP) -->
+        <div id="smsAlertBanner" class="sms-notification-banner" style="display: none; margin-bottom: 18px; border-radius: 8px;"></div>
 
         <!-- Resident impact strip -->
         <section class="impact-strip" aria-label="Your recycling impact">

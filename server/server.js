@@ -88,7 +88,7 @@ app.get("*", (req, res) => {
 });
 
 // Start Server
-app.listen(PORT, async () => {
+const serverInstance = app.listen(PORT, async () => {
   try {
     await initDb();
     console.log(`=========================================`);
@@ -100,5 +100,19 @@ app.listen(PORT, async () => {
     console.log(`=========================================`);
   } catch (err) {
     console.error("❌ Failed to initialize database:", err);
+  }
+});
+
+serverInstance.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.log(`=========================================`);
+    console.log(`ℹ️ Port ${PORT} is already in use!`);
+    console.log(`✅ Tech Nova Server is ALREADY running at: http://localhost:${PORT}`);
+    console.log(`👉 Simply open http://localhost:${PORT} in your browser.`);
+    console.log(`=========================================`);
+    process.exit(0);
+  } else {
+    console.error("❌ Server error:", err);
+    process.exit(1);
   }
 });

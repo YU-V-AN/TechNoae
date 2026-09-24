@@ -101,8 +101,17 @@ export async function sendOtpToResident(id, phone) {
         item.householdOtp = data.otp;
         item.householdOtpVerified = false;
       }
-      showSmsBanner(phone || data.phone || "Resident", data.otp);
+      const targetPhone = phone || data.phone || "Resident";
+      // Populate the SMS banner strictly inside the Resident page (#homeDashboardPanel)
+      showSmsBanner(targetPhone, data.otp);
       renderAllViews();
+
+      // Open the verification input modal for the Scrap Shop without showing the OTP code here
+      openOtpModal(id, "household");
+      if (otpSuccessMsg) {
+        otpSuccessMsg.textContent = `OTP sent to Resident (+91 ${targetPhone}). Check the Resident page for the 4-digit code.`;
+        otpSuccessMsg.style.display = "block";
+      }
     } else {
       alert(data.error || "Failed to send OTP to resident.");
     }
@@ -1073,6 +1082,9 @@ function renderShopUI(requests) {
             actionBtn = `<button class="btn primary-btn btn-send-otp" data-id="${item.id}" data-phone="${phone}">Send OTP to Resident (+91 ${phone})</button>`;
           } else {
             actionBtn = `
+              <div class="collector-notes" style="margin-bottom: 8px; width: 100%; font-weight: 500;">
+                OTP sent to Resident (+91 ${phone}). Check the Resident page for the 4-digit code to verify pickup.
+              </div>
               <button class="btn complete-btn btn-trigger-otp" data-id="${item.id}" data-tier="household">${t(currentLang, "shop.verifyOtpBtn")}</button>
               <button class="btn secondary-btn btn-resend-otp" data-id="${item.id}" data-phone="${phone}">Resend OTP</button>
             `;
@@ -1126,25 +1138,6 @@ function renderShopUI(requests) {
           dispatchStatusText = `<span class="badge recycler_assigned">${t(currentLang, "status.recycler_assigned")}</span>`;
         }
 
-        let handoverOtpHtml = "";
-        if (item.status === "Recycler Assigned" && item.shopOtp) {
-          handoverOtpHtml = `
-            <div class="otp-display-box shop-handover-box">
-              <div class="otp-badge-title">
-                <strong>${t(currentLang, "shop.handoverOtpBadge")}</strong>
-              </div>
-              <div class="otp-big-digits">${item.shopOtp}</div>
-              <p class="otp-explain">${t(currentLang, "shop.handoverOtpHint")}</p>
-            </div>
-          `;
-        } else if (item.shopOtpVerified) {
-          handoverOtpHtml = `
-            <div class="otp-verified-tag">
-              <span>Handover OTP Verified by Industrial Recycler</span>
-            </div>
-          `;
-        }
-
         return `
           <div class="item-card">
             <img src="${item.imageUrl}" class="thumb-img" alt="Scrap" onerror="this.src='assets/pcb.jpg'" />
@@ -1154,7 +1147,6 @@ function renderShopUI(requests) {
               <div style="margin: 6px 0;">${dispatchStatusText}</div>
               <p><strong>Resident:</strong> ${item.residentName} (+91 ${item.residentPhone})</p>
               ${item.residentNotes ? `<p class="collector-notes">Origin: ${item.residentNotes}</p>` : ""}
-              ${handoverOtpHtml}
             </div>
           </div>
         `;
@@ -1263,7 +1255,7 @@ function renderRecyclerUI(requests) {
     if (item.status === "In Shop") {
       actionBtn = `<button class="btn primary-btn btn-action-dispatch" data-id="${item.id}" data-action="Recycler Assigned">${t(currentLang, "recycler.acceptShopBtn")}</button>`;
     } else if (item.status === "Recycler Assigned") {
-      actionBtn = `<button class="btn complete-btn btn-trigger-otp" data-id="${item.id}" data-tier="shop">${t(currentLang, "recycler.verifyOtpBtn")}</button>`;
+      actionBtn = `<button class="btn complete-btn btn-action-dispatch" data-id="${item.id}" data-action="Completed">Complete Industrial Recycling</button>`;
     } else if (item.status === "Completed") {
       actionBtn = `<span class="badge completed">${t(currentLang, "status.completed")}</span>`;
     }
@@ -1457,7 +1449,7 @@ function openOtpModal(id, tier) {
               item.householdOtpVerified = false;
             }
             if (otpSuccessMsg) {
-              otpSuccessMsg.textContent = `New OTP sent to +91 ${data.phone}: ${data.otp}`;
+              otpSuccessMsg.textContent = `New OTP sent to Resident (+91 ${data.phone || phone}). Check the Resident page for the 4-digit code.`;
               otpSuccessMsg.style.display = "block";
             }
             showSmsBanner(data.phone || phone, data.otp);
